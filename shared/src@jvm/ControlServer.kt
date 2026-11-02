@@ -310,10 +310,10 @@ class ControlServer(private val game: GameViewModel, port: Int) {
         },
         Tool("select_game", "Switch to ishar1 or ishar2 and boot a new game of it.", listOf(Param("game", "string", "ishar1 or ishar2"))) { a ->
             val b = GameBuild.of(a.need("game")) ?: error("no game ${a.need("game")}: ishar1 or ishar2")
-            started { game.selectGame(b) }
+            started(needsGame = false) { game.selectGame(b) }
         },
-        Tool("new_game", "Boot a new game (the intro plays).") { started(game::newGame) },
-        Tool("skip_intro", "A new game walking in Fragonir (the intro skipped).") { started(game::skipIntro) },
+        Tool("new_game", "Boot a new game (the intro plays).") { started(start = game::newGame) },
+        Tool("skip_intro", "A new game walking in Fragonir (the intro skipped).") { started(start = game::skipIntro) },
         Tool("load_save", "Skip the intro and load a save by name (the player's, list_saves).", listOf(Param("name", "string", "save name"))) { a ->
             started { game.loadSave(a.need("name").uppercase()) }
         },
@@ -465,7 +465,9 @@ class ControlServer(private val game: GameViewModel, port: Int) {
     }
 
     /** Starts a game and waits until it is in the player's hands. */
-    private suspend fun started(start: () -> Unit): JsonObject {
+    /** [needsGame]: a game must be chosen, as on the start screen nothing starts and no frame would come. */
+    private suspend fun started(needsGame: Boolean = true, start: () -> Unit): JsonObject {
+        if (needsGame && game.state.value.choosing) error("no game chosen yet: call select_game first")
         start()
         while (game.state.value.let { it.loading || (it.frame == null && it.error == null && it.stopped == null) }) delay(20)
         return text(stateJson().toString())

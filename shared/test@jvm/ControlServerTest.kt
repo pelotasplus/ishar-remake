@@ -83,6 +83,44 @@ class ControlServerTest {
     private fun position(s: JsonObject) = s["position"]!!.jsonObject.let { p -> listOf("x", "y", "facing").map { p[it]!!.jsonPrimitive.int } }
 
     @Test
+    fun `starting a game on the start screen asks for select_game instead of hanging`() {
+        val choosing = GameViewModel(
+            resourceRepository = dev.pelotasplus.ishar.engine.TestResources(),
+            saveStore = MemorySaveStore().apply { write("lr.sav", dev.pelotasplus.ishar.engine.TestResources.save("LR.SAV")) },
+            muted = true,
+            build = null,
+        )
+        val choosingServer = ControlServer(choosing, 0).start()
+        fun tool(name: String, args: JsonObjectBuilder.() -> Unit = {}): JsonObject {
+            val body = buildJsonObject {
+                put("jsonrpc", "2.0")
+                put("id", ++id)
+                put("method", "tools/call")
+                put("params", buildJsonObject { put("name", name); putJsonObject("arguments", args) })
+            }
+            val req = HttpRequest.newBuilder(URI("http://127.0.0.1:${choosingServer.port}/mcp"))
+                .timeout(java.time.Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build()
+            return Json.parseToJsonElement(http.send(req, HttpResponse.BodyHandlers.ofString()).body()).jsonObject["result"]!!.jsonObject
+        }
+        try {
+            for ((name, args) in listOf<Pair<String, JsonObjectBuilder.() -> Unit>>(
+                "load_save" to { put("name", "LR") }, "new_game" to {}, "skip_intro" to {},
+            )) {
+                val r = tool(name, args)
+                assertEquals("true", r["isError"]?.jsonPrimitive?.content, "$name: $r")
+                assertTrue("select_game" in r["content"]!!.jsonArray[0].jsonObject["text"]!!.jsonPrimitive.content, "$name: $r")
+            }
+            assertEquals(null, tool("select_game") { put("game", "ishar1") }["isError"])
+            val loaded = tool("load_save") { put("name", "LR") }
+            assertEquals(null, loaded["isError"], "$loaded")
+        } finally {
+            choosingServer.stop()
+            choosing.stop()
+        }
+    }
+
+    @Test
     fun `the minimap has its map from the moment the new game runs`() {
         while (game.state.value.loading) Thread.sleep(20)
         repeat(5) {
