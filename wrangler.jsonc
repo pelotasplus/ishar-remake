@@ -1,0 +1,14 @@
+// The web game (wasmJs release build) as Workers static assets at ishar.pelotasplus.dev.
+// Build: ./kotlin build -m webApp -v release; deploy: wrangler deploy (from ishar-game/).
+{
+  "$schema": "https://unpkg.com/wrangler@4.149.0/config-schema.json",
+  "name": "ishar",
+  "compatibility_date": "2026-10-25",
+  "assets": {
+    "directory": "build/tasks/_webApp_buildWasmJsAppWasmJsRelease"
+  },
+  "routes": [
+    { "pattern": "ishar.pelotasplus.dev", "custom_domain": true }
+  ],
+  "workers_dev": false
+}

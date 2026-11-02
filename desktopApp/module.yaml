@@ -1,0 +1,14 @@
+product: jvm/app
+
+dependencies:
+  - //shared
+  - $compose.desktop.currentOs
+  - $compose.preview
+  - $libs.kotlinx.coroutines.swing
+  - $libs.androidx.lifecycle.viewmodel.compose
+  - $libs.logback.classic
+
+settings:
+  compose: enabled
+  jvm:
+    mainClass: dev.pelotasplus.ishar.MainKt
