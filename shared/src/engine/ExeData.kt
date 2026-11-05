@@ -36,6 +36,11 @@ object ExeData {
     )
 
     /** SB output stub at `0941:1280` (`0abe:1280`, 24 bytes). */
+    /** `cs:22c2`: A0h / B0h of the 36 notes, for the FM tunes. */
+    val DRV_FM_NOTES: ByteArray = hex(
+        "340d470d5a0d6f0d840d9c0db40dce0de90d070e250e460e341147115a116f1184119c11b411ce11e911071225124612341547155a156f1584159c15b415ce15e915071625164616",
+    )
+
     val DRV_SB_STUB: ByteArray = hex("601e06ba3412ec0ac078fbb010eeec0ac078fb2ea00814ee")
 
     /** MOD player funk table (`1409`, 16B), sine table (`1419`, 32B) and 16 finetunes × 36 periods (`1439`, 1152B). */
@@ -119,6 +124,7 @@ object ExeData {
         copy(b.snd, 0x001A, DRV_CURVE)
         copy(b.snd, 0x1280, DRV_SB_STUB)
         copy(b.snd, 0x1409, DRV_FUNK_SINE_PERIODS)
+        copy(b.snd, 0x22C2, DRV_FM_NOTES)
         machine.ww(b.sbd, 0x00D3, 12_000)
     }
 

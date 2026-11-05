@@ -113,6 +113,7 @@ fun App(gameViewModel: GameViewModel = viewModel { GameViewModel(build = null) }
             val position by remember { gameViewModel.state.map { it.position }.distinctUntilChanged() }.collectAsState(null)
             val paused by remember { gameViewModel.state.map { it.paused }.distinctUntilChanged() }.collectAsState(false)
             val muted by remember { gameViewModel.state.map { it.muted }.distinctUntilChanged() }.collectAsState(false)
+            val musicOn by remember { gameViewModel.state.map { it.musicOn }.distinctUntilChanged() }.collectAsState(true)
             val build by remember { gameViewModel.state.map { it.build }.distinctUntilChanged() }.collectAsState(gameViewModel.state.value.build)
             DebugMenu(
                 freeSaves = freeSaves,
@@ -123,6 +124,8 @@ fun App(gameViewModel: GameViewModel = viewModel { GameViewModel(build = null) }
                 onRemoveCurses = gameViewModel::removeCurses,
                 muted = muted,
                 onMutedChange = gameViewModel::setMuted,
+                musicOn = musicOn,
+                onMusicOnChange = gameViewModel::setMusicOn,
                 paused = paused,
                 position = position,
                 onPausedChange = { if (it) gameViewModel.pause() else gameViewModel.resume() },

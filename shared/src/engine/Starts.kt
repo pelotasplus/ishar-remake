@@ -40,6 +40,20 @@ object Starts {
     )
     const val ISHAR2_SKIP_INTRO_FRAMES = 590
 
+    /** The app's [ISHAR2_SKIP_INTRO]: the same frames, with the machine fast enough for music and keypad 1 (on) at MUSIC 1/2. */
+    val ISHAR2_SKIP_INTRO_MUSIC = Session.parse(
+        "skip intro, music on",
+        """
+        0 hw cpu_speed 014c
+        0 hw random_seed 0057
+        1 hw slow_machine 00
+        40 key down 1c
+        43 key up 1c
+        190 key down 4f
+        193 key up 4f
+        """.trimIndent(),
+    )
+
     /** By this frame the intro (Space, the title key) has reached the language menu (main.io 436b), waiting for a key. */
     const val LANGUAGE_MENU_FRAMES = 700
 

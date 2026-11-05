@@ -42,6 +42,8 @@ fun DebugMenu(
     onRemoveCurses: () -> Unit,
     muted: Boolean,
     onMutedChange: (Boolean) -> Unit,
+    musicOn: Boolean,
+    onMusicOnChange: (Boolean) -> Unit,
     paused: Boolean,
     onPausedChange: (Boolean) -> Unit,
     position: Cheats.Position?,
@@ -170,6 +172,10 @@ fun DebugMenu(
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Text("Sound", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     Switch(checked = !muted, onCheckedChange = { onMutedChange(!it) })
+                }
+                if (!ishar1) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("Music", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = musicOn, onCheckedChange = onMusicOnChange)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Text("Pause", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)

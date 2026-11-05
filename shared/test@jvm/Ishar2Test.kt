@@ -255,26 +255,28 @@ class Ishar2Test {
         assertTrue(physical() < before, "Zubaran swung at the one on his cell")
     }
 
-    /** LR.SAV with a second member in slot 2 (BRAVO, a warrior like ARAMIR), as Ishar 1 lays it out (SaveGames). */
-    private fun twoMembers(): ByteArray {
+    /** LR.SAV with [more] members after ARAMIR, warriors like him, as Ishar 1 lays it out (SaveGames). */
+    private fun members(vararg more: String): ByteArray {
         val d = TestResources.save("LR.SAV").copyOf()
         fun w(at: Int, v: Int) { d[at] = (v shr 8).toByte(); d[at + 1] = v.toByte() }
-        "BRAVO".encodeToByteArray().copyInto(d, 418 + 8)
-        w(468 + 2, 30); w(488 + 2, 30) // life, max life
-        d[728 + 1] = d[728]; d[738 + 1] = d[738] // class, level
+        more.forEachIndexed { i, name ->
+            val s = i + 1
+            name.encodeToByteArray().copyInto(d, 418 + 8 * s)
+            w(468 + 2 * s, 30); w(488 + 2 * s, 30) // life, max life
+            d[728 + s] = d[728]; d[738 + s] = d[738] // class, level
+        }
         return d
     }
 
-    @Test
-    fun `Heal all brings a dead member back so he strikes again`() = runTest {
+    /** Ishar 2 started, with the party of [members] imported through the disk menu's I -> II. */
+    private suspend fun imported(vararg more: String): Scheduler {
         val base = MemorySaveStore()
-        base.write("mk.sav", twoMembers())
+        base.write("mk.sav", members(*more))
         val f = GameFiles.fromResourceRepository(ResourceRepositoryImpl(GameBuild.ISHAR2), store = GameSaveStore(base, ishar2 = true), saveSize = null)
         val s = Starts.ISHAR2_SKIP_INTRO
         val vm = s.boot(f, Machine(build = GameBuild.ISHAR2), sound = 'B')
         for (i in 1 until Starts.ISHAR2_SKIP_INTRO_FRAMES) s.step(vm, i)
         val m = vm.machine
-        val g = GameBuild.ISHAR2.globals
         fun click(x: Int, y: Int) { Boot.mouse(m, x, y, 1); repeat(5) { vm.frame() }; Boot.mouse(m, buttons = 0); repeat(25) { vm.frame() } }
         fun key(sc: Int) {
             Session.apply(vm, Session.Event.KeyDown(sc)); Session.apply(vm, Session.Event.SpinUp(sc))
@@ -285,7 +287,42 @@ class Ishar2Test {
         for (c in "mk") key(Input.scancodeFor(c)!!)
         key(Input.ENTER)
         repeat(300) { vm.frame() }
-        assertEquals(listOf("Aramir", "Bravo"), Cheats.party(m).map { it.name }, "imported")
+        val names = listOf("Aramir") + more.map { it.lowercase().replaceFirstChar(Char::uppercase) }
+        assertEquals(names, Cheats.party(m).map { it.name }, "imported")
+        return vm
+    }
+
+    @Test
+    fun `Space swings for every member while frise io is busy with one`() = runTest {
+        val vm = imported("BRAVO", "CHARLIE", "DELTA", "ECHO")
+        val m = vm.machine
+        val g = GameBuild.ISHAR2.globals
+        Cheats.heal(vm) // the made-up save gave them no formation cells: all five to the front
+        repeat(10) { vm.frame() }
+        val input = Input(vm).also { it.install() }
+        // a hostile peasant (record 66, mode -3) on the cell ahead of 1b,2f facing east
+        m.ww(g, 0x3412 + 0x2A0 + 2 * 66, 0x1C)
+        m.ww(g, 0x34F0 + 0x2A0 + 2 * 66, 0x2F)
+        // Aramir possessed (2fb6, gerdep.io 0429): his swing hits a teammate, and frise.io shows the wound for
+        // a while (L536b, 552a). Fists pressed meanwhile replaced each other in 4f10 before frise.io took them.
+        m.ww(g, 0x2FB6 + 0x2A0, 1)
+        repeat(20) { vm.frame() }
+        Boot.mouse(m, 150, 50)
+        repeat(5) { vm.frame() }
+        val before = Cheats.party(m).map { it.life }
+        input.keyDown(Input.SPACE); repeat(3) { vm.frame() }; input.keyUp(Input.SPACE); repeat(400) { vm.frame() }
+        val party = Cheats.party(m)
+        assertTrue(party.zip(before).any { (p, l) -> p.life < l }, "Aramir hit a teammate")
+        val physical = party.drop(1).map { it.stats[6] }
+        assertTrue(physical.all { it < 100 }, "the other four swung: PHYSICAL $physical")
+    }
+
+    @Test
+    fun `Heal all brings a dead member back so he strikes again`() = runTest {
+        val vm = imported("BRAVO")
+        val m = vm.machine
+        val g = GameBuild.ISHAR2.globals
+        fun click(x: Int, y: Int) { Boot.mouse(m, x, y, 1); repeat(5) { vm.frame() }; Boot.mouse(m, buttons = 0); repeat(25) { vm.frame() } }
         fun formation() = (0 until 25).map { m.rb(g, 0x49E6 + 0x2A0 + it) }.filter { it != 0 }.sorted()
         Cheats.heal(vm) // the made-up save gave Bravo no formation cell: Heal all places him
         repeat(10) { vm.frame() }
@@ -302,6 +339,18 @@ class Ishar2Test {
         assertEquals(alive, portrait(), "the skull gone (frise.io event 32)")
         assertEquals(listOf(1, 2), formation(), "back in")
         assertEquals(1, (0 until 5).count { m.rb(g, 0x49E6 + 0x2A0 + it * 5 + 4) == 2 }, "at the front, once")
+        m.ww(g, 0x2D5C + 0x2A0 + 2, 0) // Bravo falls again, and his life comes back before any heal
+        repeat(60) { vm.frame() }
+        m.ww(g, 0x2D5C + 0x2A0 + 2, Cheats.party(m)[1].maxLife)
+        repeat(10) { vm.frame() }
+        assertNotEquals(alive, portrait(), "a skull over a member with life")
+        Cheats.heal(vm)
+        Cheats.heal(vm) // twice before frise.io takes the first: one revive
+        assertEquals(1, Frames.queued(m, 6).windowed(2).count { it == listOf(32, 1) }, "one revive queued")
+        repeat(10) { vm.frame() }
+        assertEquals(alive, portrait(), "Heal all takes that skull off too")
+        assertEquals(listOf(1, 2), formation(), "back in again")
+        assertEquals(1, (0 until 5).count { m.rb(g, 0x49E6 + 0x2A0 + it * 5 + 4) == 2 }, "at the front again")
         val before = Cheats.party(m)[1].stats[6]
         click(277, 113) // fist II
         repeat(20) { vm.frame() }

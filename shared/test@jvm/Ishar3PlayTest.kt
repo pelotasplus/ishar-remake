@@ -218,6 +218,32 @@ class Ishar3PlayTest {
     }
 
     @Test
+    fun `the music switch silences the menu's tune, which comes back`() = runTest {
+        val f = files()
+        val m = Machine(build = GameBuild.ISHAR3)
+        Boot.boot(m, f, soundOverride = 'B')
+        val vm = Scheduler.withStatements(m, f)
+        val mixer = PcmMixer(22050)
+        val sb = SoundBlaster(m, out = mixer)
+        vm.sound = sb
+        vm.interrupts = true
+        vm.runPass()
+        Ishar3Start.toMenu(vm)
+        assertEquals(1, m.gb(0x0CD8), "the tune plays")
+        fun heard(): Int {
+            mixer.take(sb.time)
+            repeat(100) { vm.frame() }
+            return mixer.take(sb.time).maxOf { kotlin.math.abs(it.toInt()) }
+        }
+        assertTrue(heard() > 1000, "on")
+        mixer.musicOn = false
+        assertTrue(heard() <= 256, "off: at most the sample stream's lowest level")
+        assertEquals(1, m.gb(0x0CD8), "the tune goes on unheard")
+        mixer.musicOn = true
+        assertTrue(heard() > 1000, "on again")
+    }
+
+    @Test
     fun `the menu plays its music and the town its sounds`() = runTest {
         val f = files()
         val m = Machine(build = GameBuild.ISHAR3)

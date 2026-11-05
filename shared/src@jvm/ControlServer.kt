@@ -7,6 +7,7 @@ import dev.pelotasplus.ishar.engine.GameBuild
 import dev.pelotasplus.ishar.engine.Input
 import dev.pelotasplus.ishar.engine.Frames
 import dev.pelotasplus.ishar.engine.Items
+import dev.pelotasplus.ishar.engine.MapTeleport
 import dev.pelotasplus.ishar.engine.SaveGames
 import dev.pelotasplus.ishar.features.game.GameViewModel
 import kotlinx.coroutines.delay
@@ -308,8 +309,8 @@ class ControlServer(private val game: GameViewModel, port: Int) {
             game.pointer(a.needInt("x"), a.needInt("y"))
             text("ok")
         },
-        Tool("select_game", "Switch to ishar1 or ishar2 and boot a new game of it.", listOf(Param("game", "string", "ishar1 or ishar2"))) { a ->
-            val b = GameBuild.of(a.need("game")) ?: error("no game ${a.need("game")}: ishar1 or ishar2")
+        Tool("select_game", "Switch to arborea, ishar1, ishar2 or ishar3 and boot a new game of it.", listOf(Param("game", "string", "arborea, ishar1, ishar2 or ishar3"))) { a ->
+            val b = GameBuild.of(a.need("game")) ?: error("no game ${a.need("game")}: arborea, ishar1, ishar2 or ishar3")
             started(needsGame = false) { game.selectGame(b) }
         },
         Tool("new_game", "Boot a new game (the intro plays).") { started(start = game::newGame) },
@@ -372,6 +373,18 @@ class ControlServer(private val game: GameViewModel, port: Int) {
         ) { a ->
             val p = Cheats.Place("mcp", a.needInt("x"), a.needInt("y"), a.needInt("contree"), a.int("region") ?: 0, a.int("zone") ?: 0)
             started { game.debugStart(p) }
+        },
+        Tool(
+            "map_move",
+            "What a long press on the map does: the party to the cell if it could walk there. Answers ok, or why not.",
+            listOf(Param("x", "integer", "X across the sheets, as on the map"), Param("y", "integer", "Y")),
+        ) { a ->
+            val done = java.util.concurrent.CompletableFuture<MapTeleport.Refusal?>()
+            game.mapTeleportDone = { done.complete(it) }
+            game.teleportOnMap(a.needInt("x"), a.needInt("y"))
+            val refusal = done.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            game.mapTeleportDone = null
+            text(refusal?.name ?: "ok")
         },
         Tool(
             "cheat",
@@ -451,6 +464,10 @@ class ControlServer(private val game: GameViewModel, port: Int) {
             game.step((a.int("frames") ?: 1).coerceIn(1, 100_000))
             text(stateJson().toString())
         },
+        Tool("music", "Hear the tunes (on: true) or not; the sound effects go on.", listOf(Param("on", "boolean", "default true", false))) { a ->
+            game.setMusicOn(a.bool("on") ?: true)
+            text(if (game.state.value.musicOn) "music on" else "music off")
+        },
         Tool("mute", "Silence the sound (on: true) or let it play.", listOf(Param("on", "boolean", "mute (default true)", false))) { a ->
             game.setMuted(a.bool("on") ?: true)
             text(if (game.state.value.muted) "muted" else "sound on")
@@ -481,6 +498,7 @@ class ControlServer(private val game: GameViewModel, port: Int) {
             put("loading", s.loading)
             put("paused", s.paused)
             put("muted", s.muted)
+            put("music_on", s.musicOn)
             put("free_saves", s.freeSaves)
             putJsonArray("visited") { s.map?.visitedBuildings?.forEach { add(JsonPrimitive("${it.kind} c${it.contree} ${it.x},${it.y}")) } }
             put("language_menu", s.languageMenu)

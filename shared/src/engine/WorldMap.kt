@@ -169,6 +169,20 @@ class WorldMap(private val grids: List<ByteArray>) : PartyMap {
     /** Cells >= 80h block a step (gerdep.io 11c3), except the gates aeh..b0h, which move the party. */
     override fun blocks(x: Int, y: Int): Boolean = code(x, y)?.let { it >= 0x80 && it !in 0xAE..0xB0 } ?: false
 
+    override fun standable(p: Cheats.Position, x: Int, y: Int): Boolean {
+        val here = worldX(p) ?: return false
+        if (x / WIDTH != here / WIDTH || areaAt(x, y) != areaAt(here, p.y)) return false
+        val c = code(x, y) ?: return false
+        if (c >= 0x80 || closedDoor(x, y)) return false
+        // the cells main.io's step loop moves the party in or out on
+        val place = INNER[x / WIDTH + 1] ?: return true
+        return (x % WIDTH to y) !in place.exits && (x % WIDTH to y) !in place.starts
+    }
+
+    override fun ownX(x: Int) = x % WIDTH
+
+    override val rows get() = ROWS
+
     /** [doors] by the party's contree's own X (gerdep.io 1629: the door edge refuses the step while 3b64 is 0). */
     override fun closedDoor(x: Int, y: Int): Boolean =
         last?.let(::worldX)?.let { it / WIDTH == x / WIDTH } == true && doors[x % WIDTH to y] == true

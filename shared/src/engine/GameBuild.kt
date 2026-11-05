@@ -53,6 +53,23 @@ enum class GameBuild(
     /** Where main.io's frame (its locals are the script globals) has its BP: script global G is at [globals]:G + this. */
     val globBase: Int = 0x2A0,
 ) {
+    /**
+     * Crystals of Arborea (1990), the trilogy's first game, as re-released on Ishar 1's engine: its START2.EXE
+     * is Ishar 1's with SS data identical (plus 220h zero bytes), the type-7f draw path removed (as Ishar 2),
+     * a rewritten SB part of the sound driver, and frame periods of at least 2 (statement 6ah).
+     */
+    ARBOREA(
+        title = "Crystals of Arborea",
+        short = "Arborea",
+        folder = "arborea/",
+        ss = 0x0DB1, vgaDrv = 0x105F, snd = 0x0ACD, sbd = 0x0D52,
+        freePara = 0x111D, builtinSamples = true,
+        mouse = 0x1266, cs5d0c = 0x5DFD, steer = 0x695E, fibonacci = 0x1890, music = 0x87C1, mod = 0x8A09,
+        // the 3D view's X, Y, facing (samb.io 00bd, ecran.io); main.io's frame is at BP 2dch (ish frames, live)
+        globals = 0x1265, partyPos = 0x2B38,
+        ss6867 = "06860b00b8c3c35053515257561e065583faff740883fafe740eeb1490b40bb7",
+        globBase = 0x2DC,
+    ),
     ISHAR1(
         title = "Ishar: Legend of the Fortress",
         short = "Ishar 1",

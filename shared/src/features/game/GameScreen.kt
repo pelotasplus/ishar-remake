@@ -149,11 +149,13 @@ fun GameScreen(viewModel: GameViewModel, modifier: Modifier = Modifier, menuOpen
         val room = maxOf((maxWidth - gameWidth) / 2, (maxHeight - gameWidth * 3f / 4f) / 2) - 12.dp
         val side = room.coerceIn(120.dp, 240.dp)
         if (state.mapOpen) {
-            FullMap(map, position, state.creatures, state.groundItems, state.visited, onClose = { viewModel.setMapOpen(false) }, onKey = onKey)
+            FullMap(map, position, state.creatures, state.groundItems, state.visited, state.mapRefusal, onClose = { viewModel.setMapOpen(false) }, onLongPress = viewModel::teleportOnMap, onKey = onKey)
         } else {
             MiniMap(
                 map, position, state.creatures, state.groundItems, state.visited,
                 side = if (doubled) min(side * 2f, min(maxWidth, maxHeight) - 12.dp) else side,
+                refusal = state.mapRefusal,
+                onLongPress = viewModel::teleportOnMap,
                 onOpen = {
                     if (doubled) viewModel.setMapOpen(true)
                     doubled = !doubled

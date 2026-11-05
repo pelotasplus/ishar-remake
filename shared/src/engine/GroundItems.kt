@@ -30,13 +30,14 @@ object GroundItems {
     fun drawn(code: Int, zone: Int) = code <= LAST_DRAWN && (code !in INTERIOR || zone in INTERIOR_ZONES)
 
     fun zone(m: Machine) = when (m.build) {
+        GameBuild.ARBOREA -> 0
         GameBuild.ISHAR1 -> m.rb(G, a(0x41E6))
         GameBuild.ISHAR2 -> m.rb(m.build.globals, a(0x4EF2))
         GameBuild.ISHAR3 -> m.rb(m.build.globals, 0x3B33 + m.build.globBase)
     }
 
     fun all(m: Machine): List<Item> {
-        if (m.build == GameBuild.ISHAR3) return emptyList() // its ground objects are not mapped yet
+        if (m.build == GameBuild.ISHAR3 || m.build == GameBuild.ARBOREA) return emptyList() // their ground objects are not mapped yet
         if (m.build != GameBuild.ISHAR1) {
             val g = m.build.globals
             return (0 until ISHAR2_COUNT).map { i -> Item(i, m.rb(g, a(0x2ABA) + i), m.rb(g, a(0x2B84) + i), m.rb(g, a(0x2C4E) + i), ishar2 = true) }

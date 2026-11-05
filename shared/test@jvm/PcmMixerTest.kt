@@ -102,4 +102,17 @@ class PcmMixerTest {
         m.take(40.0)
         assertTrue(m.capacity <= 22050, "and shrank: ${m.capacity}")
     }
+
+    @Test
+    fun `music off drops the tunes and keeps the effects`() {
+        val m = PcmMixer(1000)
+        m.musicOn = false
+        m.block(0.0, ByteArray(256) { 0x90.toByte() })
+        m.dac(0.0, 0x23 + 100)
+        m.opl(0.0, 20000)
+        assertTrue(m.take(0.005).all { it.toInt() == 16 shl 8 })
+        m.musicOn = true
+        m.opl(0.1, 20000)
+        assertTrue(m.take(0.2).any { it.toInt() != 0 })
+    }
 }

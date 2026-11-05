@@ -74,14 +74,20 @@ class KeyValueSaveStore(
  * NAME.SAV never meet; it also reads Ishar 1's (5,216 bytes) when it has none of that name: its disk
  * menu's I -> II button imports an Ishar 1 party from them (io.io L0628).
  */
-class GameSaveStore(private val base: SaveStore, private val ishar2: Boolean, private val ishar3: Boolean = false) : SaveStore {
-    private val prefix = if (ishar3) ISHAR3_PREFIX else if (ishar2) ISHAR2_PREFIX else ""
+class GameSaveStore(
+    private val base: SaveStore,
+    private val ishar2: Boolean,
+    private val ishar3: Boolean = false,
+    /** Crystals of Arborea: its four slots S1..S4.FIC, kept as arborea-s1.fic.. */
+    arborea: Boolean = false,
+) : SaveStore {
+    private val prefix = if (arborea) ARBOREA_PREFIX else if (ishar3) ISHAR3_PREFIX else if (ishar2) ISHAR2_PREFIX else ""
 
     private fun key(name: String) = prefix + name
 
     override fun names(): List<String> = base.names().let { all ->
         if (prefix.isNotEmpty()) all.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
-        else all.filterNot { it.startsWith(ISHAR2_PREFIX) || it.startsWith(ISHAR3_PREFIX) }
+        else all.filterNot { it.startsWith(ISHAR2_PREFIX) || it.startsWith(ISHAR3_PREFIX) || it.startsWith(ARBOREA_PREFIX) }
     }
 
     /**
@@ -108,6 +114,7 @@ class GameSaveStore(private val base: SaveStore, private val ishar2: Boolean, pr
     companion object {
         const val ISHAR2_PREFIX = "ishar2-"
         const val ISHAR3_PREFIX = "ishar3-"
+        const val ARBOREA_PREFIX = "arborea-"
         const val ISHAR1_SAVE_SIZE = 5216
     }
 }

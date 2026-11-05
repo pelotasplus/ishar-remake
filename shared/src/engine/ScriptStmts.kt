@@ -20,6 +20,8 @@ class ScriptStmts(private val vm: Scheduler) {
     fun install() {
         val t = vm.stmts
         for (op in RET_OPS) t[op] = {}
+        // cs:0022, a ret in every build; only Arborea's combat.io (065e) runs it
+        if (build == GameBuild.ARBOREA) t[0x04] = {}
         t[0x05] = ::call8; t[0x06] = ::call16; t[0x07] = ::call16p
         t[0x08] = ::jump8; t[0x09] = ::jump16; t[0x0A] = ::jump16p
         t[0x11] = ::ret
@@ -62,7 +64,12 @@ class ScriptStmts(private val vm: Scheduler) {
         t[0x64] = { m.wb(m.es, m.bp - 0x24, m.rb(m.es, m.bp - 0x24) and 0xFD) }
         t[0x65] = { m.wb(m.es, m.bp - 0x24, m.rb(m.es, m.bp - 0x24) or 2) }
         t[0x66] = ::eventsFlush; t[0x67] = { m.sgb(0x0C96, 1) }
-        t[0x6A] = { x.step(); m.sgb(0x0C99, m.dx) }
+        t[0x6A] = {
+            x.step()
+            // Arborea's 599c: cmp dx,2 / jg / mov dx,2 (signed): a frame waits at least 2 ticks
+            if (build == GameBuild.ARBOREA && m.dx.toShort() <= 2) m.dx = 2
+            m.sgb(0x0C99, m.dx)
+        }
         t[0x6B] = ::soundTone; t[0x6C] = ::soundSampleHit; t[0x6D] = ::soundDecay
         t[0x6E] = { repeat(4) { x.step() } }
         t[0x6F] = ::setLocalBytes

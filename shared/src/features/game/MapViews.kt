@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeContentPadding
@@ -15,6 +16,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -33,6 +35,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -40,41 +44,57 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import dev.pelotasplus.ishar.engine.Buildings
 import dev.pelotasplus.ishar.engine.Cheats
 import dev.pelotasplus.ishar.engine.Creatures
 import dev.pelotasplus.ishar.engine.GroundItems
+import dev.pelotasplus.ishar.engine.MapTeleport
 import dev.pelotasplus.ishar.engine.PartyMap
+import kotlin.math.floor
 
 private val UNSEEN = Color(0xFF101018)
 private const val AROUND = 10
+
+/** A long press refused: cell [x] (across the sheets), [y], and [why]. */
+data class MapRefusal(val x: Int, val y: Int, val why: MapTeleport.Refusal)
 
 /** Cells across the [MiniMap]. */
 const val MINI_CELLS = 2 * AROUND + 1
 
 /** The cells around the party, north up; a tap opens [FullMap]. */
 @Composable
-fun MiniMap(map: PartyMap, position: Cheats.Position, creatures: List<Creatures.Creature>, items: List<GroundItems.Item>, visited: List<Buildings.Building>, side: Dp, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+fun MiniMap(map: PartyMap, position: Cheats.Position, creatures: List<Creatures.Creature>, items: List<GroundItems.Item>, visited: List<Buildings.Building>, side: Dp, refusal: MapRefusal?, onOpen: () -> Unit, onLongPress: (x: Int, y: Int) -> Unit, modifier: Modifier = Modifier) {
     val x = map.sheetX(position) ?: return
     val letters = rememberTextMeasurer()
+    val party by rememberUpdatedState(x to position.y)
+    val tap by rememberUpdatedState(onOpen)
+    val press by rememberUpdatedState(onLongPress)
     Canvas(
         modifier
             .size(side)
             .background(UNSEEN)
             .border(1.dp, Color(0xFFC8A860))
-            .clickable(onClickLabel = "Open the map", onClick = onOpen),
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { tap() }, onLongPress = { at ->
+                    val cell = size.width.toFloat() / MINI_CELLS
+                    press(party.first - AROUND + floor(at.x / cell).toInt(), party.second - AROUND + floor(at.y / cell).toInt())
+                })
+            }
+            .semantics { onClick("Open the map") { tap(); true } },
     ) {
         drawCells(map, x - AROUND..x + AROUND, position.y - AROUND..position.y + AROUND, size.width / MINI_CELLS, Offset.Zero, x, position, map.known(creatures), map.knownItems(items), visited, letters)
+        drawRefusal(refusal, x - AROUND, position.y - AROUND, size.width / MINI_CELLS, Offset.Zero, letters)
     }
 }
 
 /**
  * Everything seen on the party's sheet, full screen, at one zoom ([FULL_CELL]) around the party; a
- * drag moves it when it does not fit. A tap or Esc closes it; other keys go to [onKey], so the party
- * walks with the map open.
+ * drag moves it when it does not fit. A tap or Esc closes it, a long press asks to go to that cell; other keys
+ * go to [onKey], so the party walks with the map open.
  */
 @Composable
-fun FullMap(map: PartyMap, position: Cheats.Position, creatures: List<Creatures.Creature>, items: List<GroundItems.Item>, visited: List<Buildings.Building>, onClose: () -> Unit, onKey: (KeyEvent) -> Boolean, modifier: Modifier = Modifier) {
+fun FullMap(map: PartyMap, position: Cheats.Position, creatures: List<Creatures.Creature>, items: List<GroundItems.Item>, visited: List<Buildings.Building>, refusal: MapRefusal?, onClose: () -> Unit, onLongPress: (x: Int, y: Int) -> Unit, onKey: (KeyEvent) -> Boolean, modifier: Modifier = Modifier) {
     val focus = remember { FocusRequester() }
     val letters = rememberTextMeasurer()
     LaunchedEffect(Unit) { focus.requestFocus() }
@@ -95,18 +115,48 @@ fun FullMap(map: PartyMap, position: Cheats.Position, creatures: List<Creatures.
             .clickable(onClickLabel = "Close the map", onClick = onClose)
             .safeContentPadding(),
     ) {
-        if (x != null) Canvas(Modifier.fillMaxSize().clipToBounds()) {
-            val (seenX, seenY) = map.seenBounds(x) ?: (x..x to position.y..position.y)
-            val xs = minOf(seenX.first, x) - MARGIN..maxOf(seenX.last, x) + MARGIN
-            val ys = minOf(seenY.first, position.y) - MARGIN..maxOf(seenY.last, position.y) + MARGIN
-            val columns = xs.last - xs.first + 1
-            val rows = ys.last - ys.first + 1
-            val cell = FULL_CELL.toPx()
-            val left = origin(size.width, cell * columns, size.width / 2 - (x - xs.first + 0.5f) * cell + drag.x)
-            val top = origin(size.height, cell * rows, size.height / 2 - (position.y - ys.first + 0.5f) * cell + drag.y)
-            drawCells(map, xs, ys, cell, Offset(left, top), x, position, map.known(creatures), map.knownItems(items), visited, letters)
+        if (x != null) {
+            val party by rememberUpdatedState(x to position.y)
+            val close by rememberUpdatedState(onClose)
+            val press by rememberUpdatedState(onLongPress)
+            Canvas(
+                Modifier.fillMaxSize().clipToBounds().pointerInput(Unit) {
+                    detectTapGestures(onTap = { close() }, onLongPress = { at ->
+                        val g = fullGrid(map, party.first, party.second, size.width.toFloat(), size.height.toFloat(), FULL_CELL.toPx(), drag)
+                        press(g.xs.first + floor((at.x - g.at.x) / g.cell).toInt(), g.ys.first + floor((at.y - g.at.y) / g.cell).toInt())
+                    })
+                },
+            ) {
+                val g = fullGrid(map, x, position.y, size.width, size.height, FULL_CELL.toPx(), drag)
+                drawCells(map, g.xs, g.ys, g.cell, g.at, x, position, map.known(creatures), map.knownItems(items), visited, letters)
+                drawRefusal(refusal, g.xs.first, g.ys.first, g.cell, g.at, letters)
+            }
         }
     }
+}
+
+private class FullGrid(val xs: IntRange, val ys: IntRange, val cell: Float, val at: Offset)
+
+/** What the full map shows in a [width] by [height] canvas, with the party at [x], [y]. */
+private fun fullGrid(map: PartyMap, x: Int, y: Int, width: Float, height: Float, cell: Float, drag: Offset): FullGrid {
+    val (seenX, seenY) = map.seenBounds(x) ?: (x..x to y..y)
+    val xs = minOf(seenX.first, x) - MARGIN..maxOf(seenX.last, x) + MARGIN
+    val ys = minOf(seenY.first, y) - MARGIN..maxOf(seenY.last, y) + MARGIN
+    val left = origin(width, cell * (xs.last - xs.first + 1), width / 2 - (x - xs.first + 0.5f) * cell + drag.x)
+    val top = origin(height, cell * (ys.last - ys.first + 1), height / 2 - (y - ys.first + 0.5f) * cell + drag.y)
+    return FullGrid(xs, ys, cell, Offset(left, top))
+}
+
+/** A red mark on the refused cell and the reason along the map's bottom, so that a refusal does not read as a dead gesture. */
+private fun DrawScope.drawRefusal(refusal: MapRefusal?, firstX: Int, firstY: Int, cell: Float, at: Offset, letters: TextMeasurer) {
+    val r = refusal ?: return
+    val side = maxOf(cell, 6.dp.toPx())
+    val centre = Offset(at.x + (r.x - firstX + 0.5f) * cell, at.y + (r.y - firstY + 0.5f) * cell)
+    drawRect(Color(0xFFE61414), centre - Offset(side / 2, side / 2), Size(side, side), style = Stroke(2.dp.toPx()))
+    val text = letters.measure(r.why.text, TextStyle(color = Color.White, fontSize = 12.sp))
+    val corner = Offset((size.width - text.size.width) / 2, size.height - text.size.height - 6.dp.toPx())
+    drawRect(Color(0xCC000000), corner - Offset(4.dp.toPx(), 2.dp.toPx()), Size(text.size.width + 8.dp.toPx(), text.size.height + 4.dp.toPx()))
+    drawText(text, topLeft = corner)
 }
 
 /** Centred when the map fits, else [wanted] kept from leaving a gap at either end. */

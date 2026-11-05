@@ -44,9 +44,15 @@ class Input(private val vm: Scheduler) {
     private fun down(m: Machine, scancode: Int) {
         // The host's auto-repeat while a key is held: at a name prompt it would type the letter again ("aaaa")
         if (scancode in sent && textPrompt(m)) return
-        if (scancode == SPACE && !textPrompt(m) && (if (m.build == GameBuild.ISHAR1) attackAll(m) else attackAll2(m))) return
-        val keys = if (m.build == GameBuild.ISHAR1) WASD else ISHAR2_WASD
+        val arborea = m.build == GameBuild.ARBOREA
+        if (scancode == SPACE && !arborea && !textPrompt(m) && (if (m.build == GameBuild.ISHAR1) attackAll(m) else attackAll2(m))) return
+        val keys = when (m.build) {
+            GameBuild.ARBOREA -> ARBOREA_KEYS
+            GameBuild.ISHAR1 -> WASD
+            else -> ISHAR2_WASD
+        }
         val sc = keys[scancode]?.takeUnless { _ -> textPrompt(m) } ?: scancode
+        if (arborea && scancode in ARBOREA_KEYS) altHeld(m, true)
         sent[scancode] = sc
         keyDownAt[scancode] = vm.ticks
         Boot.keyDown(m, sc)
@@ -67,7 +73,14 @@ class Input(private val vm: Scheduler) {
     private fun up(m: Machine, scancode: Int) {
         val sc = sent.remove(scancode) ?: scancode
         Boot.keyUp(m, sc)
+        if (m.build == GameBuild.ARBOREA && sent.keys.none { it in ARBOREA_KEYS }) altHeld(m, false)
         releases.remove(sc)?.let { r -> vm.spinRelease.remove(r) }
+    }
+
+    /** Arborea's souris.io takes the keypad as the move pad only with Alt held (BIOS shift flags bit 3). */
+    private fun altHeld(m: Machine, on: Boolean) {
+        val f = m.rb(0x40, 0x17)
+        m.wb(0x40, 0x17, if (on) f or 0x08 else f and 0x08.inv())
     }
 
     /** What each held host key went down as (W/A/S/D/Q/E: a move key, or the letter at a prompt). */
@@ -112,6 +125,9 @@ class Input(private val vm: Scheduler) {
      * are parts of frise.io's compound box (shape 9), class = the member's number, which souris.io
      * writes to glob 4f10 and frise.io 08d0 -> 0909 swings with. Only with a hostile on the cell ahead
      * or on the party's own cell, where Ishar 2's fighters stand: a swing costs PHYSICAL even at nothing.
+     * souris.io puts the fist's class in 4f10 while the button is down, and frise.io takes it only between
+     * swings (08d0, cleared at 09a5); a press during a swing overwrites the one still waiting. So each fist
+     * waits until frise.io has taken the one before ([FIST_WAIT] ticks at most).
      */
     private fun attackAll2(m: Machine): Boolean {
         if (vm.ticks < attackFree) return true
@@ -125,14 +141,31 @@ class Input(private val vm: Scheduler) {
         if (!ahead) return false
         val slots = Cheats.party(m).filter { it.life > 0 }.map { it.slot }
         if (slots.isEmpty()) return false
-        attackFree = vm.ticks + slots.size * ATTACK_GAP
+        attackFree = vm.ticks + slots.size * (MIN_CLICK + FIST_WAIT)
         val x = m.rw(Machine.CS, m.build.mouse)
         val y = m.rw(Machine.CS, m.build.mouse + 2)
-        slots.forEachIndexed { i, slot ->
-            vm.at(i * ATTACK_GAP) { s -> Boot.mouse(s.machine, ISHAR2_FIST_X[slot], ISHAR2_FIST_Y[slot], 1) }
-            vm.at(i * ATTACK_GAP + MIN_CLICK) { s -> Boot.mouse(s.machine, buttons = 0) }
+        fun fist(i: Int, s: Scheduler) {
+            if (i == slots.size) {
+                val last = slots.last()
+                val at = s.machine.build.mouse
+                // the pointer back, unless the player has moved it meanwhile
+                if (s.machine.rw(Machine.CS, at) == ISHAR2_FIST_X[last] && s.machine.rw(Machine.CS, at + 2) == ISHAR2_FIST_Y[last]) {
+                    Boot.mouse(s.machine, x, y)
+                }
+                attackFree = s.ticks
+                return
+            }
+            Boot.mouse(s.machine, ISHAR2_FIST_X[slots[i]], ISHAR2_FIST_Y[slots[i]], 1)
+            s.at(MIN_CLICK) { s2 ->
+                Boot.mouse(s2.machine, buttons = 0)
+                fun taken(left: Int, s3: Scheduler) {
+                    if (left == 0 || s3.machine.rw(s3.machine.build.globals, FIST_CLASS + s3.machine.build.globBase) == 0) fist(i + 1, s3)
+                    else s3.at(1) { taken(left - 1, it) }
+                }
+                taken(FIST_WAIT, s2)
+            }
         }
-        vm.at(slots.size * ATTACK_GAP) { s -> Boot.mouse(s.machine, x, y) }
+        vm.at(0) { fist(0, it) }
         return true
     }
 
@@ -238,6 +271,16 @@ class Input(private val vm: Scheduler) {
             0x10 to 0x4F, 0x12 to 0x51,
         )
 
+        /**
+         * Arborea's move pad from the keypad (souris.io 00cf, with Alt): 8 forward, 2 back, 4/6 turn, 7/9 strafe,
+         * 1 the map, 3 out of the 3D view. W/S/A/D and the arrows walk and turn, Q/E strafe.
+         */
+        private val ARBOREA_KEYS = mapOf(
+            0x11 to UP, 0x1F to DOWN, 0x1E to LEFT, 0x20 to RIGHT,
+            UP to UP, DOWN to DOWN, LEFT to LEFT, RIGHT to RIGHT,
+            0x10 to 0x47, 0x12 to 0x49,
+        )
+
         /** Ishar 2 swapped them: keypad 4/6 (Left/Right) turn, keypad 1/3 strafe. */
         private val ISHAR2_WASD = mapOf(
             0x11 to UP, 0x1E to 0x4F, 0x1F to DOWN, 0x20 to 0x51,
@@ -256,6 +299,7 @@ class Input(private val vm: Scheduler) {
         /** A frame of a [PROMPT_ASSETS] asset exists (sos.io stays loaded in play; its frame lives only while the prompt is up). */
         fun textPrompt(m: Machine): Boolean {
             val assets = when (m.build) {
+                GameBuild.ARBOREA -> emptySet()
                 GameBuild.ISHAR1 -> PROMPT_ASSETS
                 GameBuild.ISHAR2 -> ISHAR2_PROMPT_ASSETS
                 GameBuild.ISHAR3 -> ISHAR3_PROMPT_ASSETS
@@ -296,6 +340,10 @@ class Input(private val vm: Scheduler) {
 
         /** Ticks from one member's ATTACK click to the next: the press and the strike's frames. */
         const val ATTACK_GAP = 21
+
+        /** Ishar 2: the fist souris.io saw pressed (glob 4f10), until frise.io takes it. */
+        private const val FIST_CLASS = 0x4F10
+        private const val FIST_WAIT = 90
         const val TYPE_HOLD = 9
         const val TYPE_GAP = 6
 

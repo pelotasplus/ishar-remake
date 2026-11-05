@@ -37,6 +37,7 @@ object Cheats {
     private val ISHAR3 = PartyGlobs(0x1698, 0x16E0, 0x1700, 0x16F0, 0x1710, 0x185E, listOf(0x188E, 0x189A, 0x18A6, 0x18B2, 0x18BE, 0x18E2, 0x18D6), nameLen = 10)
 
     private fun globs(m: Machine) = when (m.build) {
+        GameBuild.ARBOREA -> null // its party globals are not found yet
         GameBuild.ISHAR1 -> ISHAR1
         GameBuild.ISHAR2 -> ISHAR2
         GameBuild.ISHAR3 -> ISHAR3
@@ -46,7 +47,7 @@ object Cheats {
 
     /** The members in their slots (class = ffh is an empty slot). */
     fun party(m: Machine): List<Member> {
-        val p = globs(m)
+        val p = globs(m) ?: return emptyList()
         val g = m.build.globals
         return (0 until 5).filter { m.rb(g, a(m, p.cls) + it) != 0xFF }.map { s ->
             var name = (0 until p.nameLen).map { m.rb(g, a(m, p.names) + p.nameLen * s + it) }.takeWhile { it != 0 }
@@ -94,10 +95,11 @@ object Cheats {
      * slot at life 0 under a skull (frise.io 5e8d, object 36h + slot) and leaves the formation grid 49e6
      * (5x5, cell a*5+b holds slot+1; b = 4 is the front). frise.io's event 32 (slot) brings him back
      * (0d89): the skull goes, name and portrait are drawn again, and he takes the first empty cell from
-     * the back corner. So the dead get that event, and [formation2] moves them to the front afterwards.
+     * the back corner. So the dead (life 0, or a [skull] up) get that event once (none if one is still
+     * queued), and [formation2] moves them to the front afterwards.
      */
     private fun heal2(m: Machine): List<Int> {
-        val p = globs(m)
+        val p = globs(m) ?: return emptyList()
         val g = m.build.globals
         val party = party(m)
         for (mem in party) {
@@ -106,13 +108,34 @@ object Cheats {
             m.wb(g, a(m, p.stats[6]) + mem.slot, 100)
         }
         if (m.build == GameBuild.ISHAR3) return revive3(m, party)
-        val revived = party.filter { it.life <= 0 }.map { it.slot }.filter { slot ->
+        val slots = party.map { it.slot }
+        val queued = Frames.queued(m, FRISE).windowed(2).filter { it[0] == REVIVE && it[1] in slots }.map { it[1] }
+        val dead = party.filter { it.life <= 0 || skull(m, it.slot) }.map { it.slot } - queued.toSet()
+        val revived = dead.filter { slot ->
             Frames.post(m, FRISE, listOf(REVIVE, slot)).also { posted ->
                 if (posted) for (i in 0 until 25) if (m.rb(g, a(0x49E6) + i) == slot + 1) m.wb(g, a(0x49E6) + i, 0) // frise places him
             }
         }
-        formation2(m, revived)
-        return revived
+        formation2(m, revived + queued)
+        return (revived + queued).distinct()
+    }
+
+    /**
+     * frise.io's skull (object 36h + slot) is up: he is dead even with life above 0, as after a heal whose
+     * revive frise.io's queue did not take (seen in play: full life under a skull).
+     */
+    private fun skull(m: Machine, slot: Int): Boolean {
+        val bp = Frames.of(m, FRISE) ?: return false
+        val es = m.g(0x0BD6)
+        val ods = m.g(0x0BEA)
+        val owner = m.rw(es, bp - 0x16)
+        var di = m.rw(es, bp - 0x18)
+        repeat(0x400) {
+            if (di == 0) return false
+            if (m.rw(ods, di + 2) == owner && m.rb(ods, di + 1) == 0x36 + slot) return true
+            di = m.rw(ods, di + 4)
+        }
+        return false
     }
 
     /**
@@ -239,7 +262,7 @@ object Cheats {
     /** Gold as the game keeps it: thousands (154e) and units (3770). */
     fun setGold(m: Machine, slot: Int, gold: Int) {
         val g = gold.coerceIn(0, 65535 * 1000 + 999)
-        val p = globs(m)
+        val p = globs(m) ?: return
         m.ww(m.build.globals, a(m, p.thousands) + 2 * slot, g / 1000)
         m.ww(m.build.globals, a(m, p.units) + 2 * slot, g % 1000)
     }
@@ -250,7 +273,10 @@ object Cheats {
         setGold(m, first.slot, first.gold + amount)
     }
 
-    fun setStat(m: Machine, slot: Int, stat: Int, value: Int) = m.wb(m.build.globals, a(m, globs(m).stats[stat]) + slot, value.coerceIn(0, 255))
+    fun setStat(m: Machine, slot: Int, stat: Int, value: Int) {
+        val p = globs(m) ?: return
+        m.wb(m.build.globals, a(m, p.stats[stat]) + slot, value.coerceIn(0, 255))
+    }
 
     /** Party X/Y/facing (137c..137e; facing 1 N, 2 E, 3 S, 4 W) in the loaded contree; the view follows on the next step. */
     fun moveParty(m: Machine, x: Int, y: Int, facing: Int) {
@@ -260,10 +286,19 @@ object Cheats {
             m.wb(m.build.globals, a(m, 0x14B7), ISHAR3_FACING[facing.coerceIn(1, 4) - 1])
             return
         }
-        val p = a(m.build.partyPos)
+        val p = a(m, m.build.partyPos)
         m.wb(m.build.globals, p, x)
         m.wb(m.build.globals, p + 1, y)
         m.wb(m.build.globals, p + 2, facing.coerceIn(1, 4))
+    }
+
+    /**
+     * [moveParty] and, in Ishar 1, 3646 (main.io 09ee), the place along the country: it, not X, decides the contree seams.
+     * [ownX] is X in the party's contree.
+     */
+    fun moveWithinContree(m: Machine, ownX: Int, y: Int, facing: Int) {
+        moveParty(m, ownX, y, facing)
+        if (m.build == GameBuild.ISHAR1) m.ww(m.build.globals, a(0x3646), (position(m).contree % 10 - 1) * 54 + ownX)
     }
 
     /**
@@ -303,7 +338,11 @@ object Cheats {
             val f = ISHAR3_FACING.indexOf(m.rb(g, a(m, 0x14B7))) + 1
             return Position(m.rb(g, a(m, 0x257)), m.rb(g, a(m, 0x14B6)), f, m.rb(g, a(m, 0x14B9)))
         }
-        val p = a(m.build.partyPos)
+        if (m.build == GameBuild.ARBOREA) {
+            val p = a(m, m.build.partyPos)
+            return Position(m.rb(g, p), m.rb(g, p + 1), m.rb(g, p + 2), 0)
+        }
+        val p = a(m, m.build.partyPos)
         val contree = a(if (m.build == GameBuild.ISHAR1) 0x1508 else 0x2D18)
         return Position(m.rb(g, p), m.rb(g, p + 1), m.rb(g, p + 2), m.rb(g, contree))
     }

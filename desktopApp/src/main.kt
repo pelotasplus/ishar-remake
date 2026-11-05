@@ -8,7 +8,7 @@ import dev.pelotasplus.ishar.features.game.GameViewModel
 
 /** `ISHAR_MCP=port` starts the MCP server on 127.0.0.1 (ControlServer); `ISHAR_MUTE=1` starts muted; `ISHAR_GAME=ishar2` starts Ishar 2 without the start screen. */
 fun main() {
-    // ISHAR_GAME=ishar1|ishar2 starts that game; otherwise the start screen asks
+    // ISHAR_GAME=arborea|ishar1|ishar2|ishar3 starts that game; otherwise the start screen asks
     val game = GameViewModel(build = System.getenv("ISHAR_GAME")?.let(GameBuild::of))
     val server = System.getenv("ISHAR_MCP")?.toIntOrNull()?.let {
         val server = ControlServer(game, it).start()

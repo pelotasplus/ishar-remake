@@ -22,6 +22,23 @@ object Frames {
         (m.rw(es, bp - 8) - m.rw(es, bp - 0x14)) and 0xFFFF
     }
 
+    /** The words waiting in [asset]'s event queue, oldest first, as `event_pop` (ScriptExpr.eventPop) reads them. */
+    fun queued(m: Machine, asset: Int): List<Int> {
+        val bp = of(m, asset) ?: return emptyList()
+        val es = m.g(0x0BD6)
+        val (aofs, aseg) = m.far(es, bp - 0x14)
+        val qsize = m.rw(aseg, aofs + 0x16)
+        val end = m.rw(es, bp - 0x1C)
+        var di = m.rw(es, bp - 0x1E)
+        val words = mutableListOf<Int>()
+        while (di != end && words.size < 0x100) {
+            words += m.rw(es, (bp + di) and 0xFFFF)
+            di = (di + 2) and 0xFFFF
+            if (di.toShort() >= -0x34) di = (di - qsize) and 0xFFFF
+        }
+        return words
+    }
+
     /** [words] into [asset]'s event queue, as `post_event` does (ScriptStmts.postEvent); false when it takes none. */
     fun post(m: Machine, asset: Int, words: List<Int>): Boolean {
         val di = of(m, asset) ?: return false

@@ -28,6 +28,9 @@ class SoundBlaster(
         /** One direct-DAC byte (23h silence, the speaker curve's middle), held for 1/13,257.6 s. */
         fun dac(t: Double, v: Int)
 
+        /** One sample of the FM chip (signed 16 bits), at [OplChip.RATE] Hz, from [t] on. */
+        fun opl(t: Double, v: Int) {}
+
         companion object {
             val NONE = object : Output {
                 override fun block(t: Double, data: ByteArray) {}
@@ -57,10 +60,23 @@ class SoundBlaster(
     private var musicOn = false
     private var d = 0 // the MOD player's block segment
 
+    /** The FM chip; [oplWrites] sees each register write of a tune in FM mode. */
+    private val chip = OplChip()
+    private var chipSamples = 0L // what the chip has put out so far
+    var oplWrites: ((reg: Int, value: Int) -> Unit)? = null
+
     // --- time ---------------------------------------------------------------
 
     /** Before the game's int8 body: with music, PIT interrupts until `cs:13fa` carries; else one tick. */
     override fun irq() {
+        if (drb(0x0004) != 0) { // int8_handler 0dc9: in FM mode the tune runs on the game's own tick
+            time += tickS
+            sbUntil(time)
+            renderChip()
+            d = drw(0x1406)
+            musicTick()
+            return
+        }
         if (!musicOn) {
             time += tickS
             sbUntil(time)
@@ -295,23 +311,20 @@ class SoundBlaster(
 
     /** `music_start` `86ec` (card 3; the caller tests slow_machine `[2892]`). */
     private fun musicStart() {
+        m.wb(Machine.CS, m.build.music, 0)
         var fm = 0
         for (s in 0 until 0x20) {
             val ofs = m.g(0x0CF6 + 8 * s)
             val seg = m.g(0x0CF8 + 8 * s)
             if (m.rb(seg, ofs - 0x10) == 6) fm++
         }
-        // FM tunes (Ishar 2's pcmusic*.io, played on the OPL in FM mode 86c1) are not rebuilt: silence, and the
-        // tune they replace stops too, or the mixer would go on through its freed instruments
-        if (fm >= 3) {
-            musicOn = false
-            return
-        }
+        val fmMode = fm >= 3 // Ishar 2's pcmusic*.io: kind-6 patch records, played on the OPL
+        if (fmMode) m.wb(Machine.CS, m.build.music, 1)
         if (m.g(0x28B0) == 0) {
-            val dx = memAllocTop(0x6000)
+            val dx = memAllocTop(if (fmMode) 0x1000 else 0x6000)
             m.sg(0x28B0, dx)
             if (dx == 0) return
-            drvInit(dx)
+            if (fmMode) drvInitFm(dx - 0x510) else drvInit(dx)
         }
         drvPlay()
         m.sgb(0x0CD8, 1)
@@ -359,6 +372,21 @@ class SoundBlaster(
             m.ww(seg, 0x4102 + 4 * p, ((q ushr 16) and 0xFFFF).toInt())
         }
         channelsReset()
+        musicOn = true
+    }
+
+    /** `music_drv_init` in FM mode: no mixer, no timer, no tables; the channel state at [seg]`:5100` is the block's start. */
+    private fun drvInitFm(seg: Int) {
+        m.wb(DRV, 0x0013, 0)
+        m.wb(DRV, 0x0005, 1)
+        m.ww(DRV, 0x0002, 0x5A)
+        m.ww(DRV, 0x1406, seg)
+        m.ww(DRV, 0x0000, m.gb(0x2890))
+        channelsReset()
+        chipSamples = (time * OplChip.RATE).toLong() // the chip was silent since the last tune: no need to render that
+        oplWrite(0x01, 0) // opl_reset 2647
+        oplWrite(0x08, 0)
+        m.wb(DRV, 0x0004, 1)
         musicOn = true
     }
 
@@ -440,6 +468,10 @@ class SoundBlaster(
     /** `music_stop` `8a97`: the PIT back (`music_drv_stop` `019d`), the block freed. */
     private fun musicStop() {
         musicOn = false
+        if (drb(0x0005) != 0) { // music_drv_stop 019d
+            dwb(0x0004, 0)
+            oplSilence()
+        }
         val dseg = m.g(0x28B0)
         if (dseg != 0) {
             if (dseg - 1 == m.g(0x0B96)) m.sg(0x0B96, dseg - 1 + m.rw(dseg - 1, 0))
@@ -611,6 +643,7 @@ class SoundBlaster(
 
     /** `music_note_read` `0899`. */
     private fun noteRead(si: Int, es: Int, di: Int) {
+        if (drb(0x0005) != 0) return noteReadFm(si, es, di)
         if (w(0x5100 + si) == 0 && b(0x5102 + si) == 0) setStep(si)
         sw(0x5100 + si, m.rw(es, di))
         sw(0x5102 + si, m.rw(es, di + 2))
@@ -629,6 +662,28 @@ class SoundBlaster(
             sw(0x5108 + si, w(0x52F7 + bx))
             sw(0x5181 + si, 0)
         }
+        noteTail(si)
+    }
+
+    /** `0820`: the FM head of `music_note_read`, a note-on for the cell's patch. The tail keeps the (unheard) channel state. */
+    private fun noteReadFm(si: Int, es: Int, di: Int) {
+        if (w(0x5100 + si) == 0 && b(0x5102 + si) == 0) setStep(si)
+        sw(0x5100 + si, m.rw(es, di))
+        sw(0x5102 + si, m.rw(es, di + 2))
+        val s = (b(0x5102 + si) ushr 4) or (b(0x5100 + si) and 0xF0)
+        if (s != 0) {
+            val bx = 2 * s
+            val seg = w(0x5277 + bx)
+            val ofs = w(0x53B7 + bx)
+            sw(0x5104 + si, seg)
+            sw(0x5110 + si, ofs)
+            fmNoteOn(cellPeriod(si), ((di - drw(0x13FE)) and 0xFFFF) ushr 2, seg, ofs)
+        }
+        noteTail(si)
+    }
+
+    /** `091e`: the cell's period, its effects. */
+    private fun noteTail(si: Int) {
         val per = cellPeriod(si)
         if (per == 0) return rowEffects(si)
         var e = w(0x5102 + si)
@@ -658,6 +713,98 @@ class SoundBlaster(
         sb(0x518B + si, 1)
         trigger(si)
         rowEffects(si)
+    }
+
+    // --- the FM tunes (seg_0941 2454..269e) ---------------------------------------
+
+    /** `music_fm_note_on` `2454`: voice = the cell's channel, or the one the patch names. */
+    private fun fmNoteOn(period: Int, channel: Int, seg: Int, ofs: Int) {
+        val pinned = m.rb(seg, ofs) != 0
+        val voice = if (pinned) m.rb(seg, ofs + 1) else channel
+        val p = ofs + 2
+        fmKeyOff(voice)
+        val first = FM_OPS[voice * 2]
+        val second = FM_OPS[voice * 2 + 1]
+        val connection = m.rb(seg, p + 0x0C)
+        m.wb(seg, p + 0x19, connection)
+        fmOperator(seg, p, first, second)
+        fmOperator(seg, p + 0x0D, second, first)
+        // a drum's single operator leaves its record's second half unread, and its wave comes from there
+        val w = if (second == 0xFF) p + 0x0D else p + 0x1A
+        oplWrite((0xE0 + first) and 0xFF, m.rb(seg, w))
+        oplWrite((0xE0 + second) and 0xFF, m.rb(seg, w + 1))
+        if (voice < 7) {
+            val fb = (m.rb(seg, p + 2) shl 1) and 0xFF
+            oplWrite(0xC0 + voice, ((connection xor 1) + fb) and 0xFF)
+        }
+        var note = 0
+        while (note < 36 && period != drw(PERIODS + 2 * note)) note++
+        if (voice < 6) {
+            val v = drw(0x22C2 + 2 * note)
+            oplWrite(0xA0 + voice, v and 0xFF)
+            oplWrite(0xB0 + voice, (v ushr 8) or 0x20)
+        } else { // 25de: a drum
+            oplWrite(0xB0 + voice, 0)
+            oplWrite(0xBD, drb(OPL_SHADOW + 0xBD) or (0x10 ushr (voice - 6)) or 0x20)
+        }
+    }
+
+    /** `24e6`: one operator's 13 bytes; the volume scales the ones heard, not a modulator. */
+    private fun fmOperator(seg: Int, si: Int, op: Int, other: Int) {
+        if (op == 0xFF) return
+        fun r(i: Int) = m.rb(seg, si + i)
+        var level = r(8)
+        if (r(0x0C) != 1 || s8(op) >= s8(other)) {
+            val scaled = (drb(0x0006) * ((0x3F - level) and 0xFF)) ushr 6
+            level = (0x3F - scaled) and 0xFF
+        }
+        oplWrite(0x40 + op, (((r(0) shl 6) and 0xFF) + level) and 0xFF)
+        oplWrite(0x20 + op, (r(1) + ((r(5) shl 5) and 0xFF) + ((r(9) shl 7) and 0xFF) + ((r(0x0A) shl 6) and 0xFF) + ((r(0x0B) shl 4) and 0xFF)) and 0xFF)
+        oplWrite(0x60 + op, (((r(3) shl 4) and 0xFF) + r(6)) and 0xFF)
+        oplWrite(0x80 + op, (((r(4) shl 4) and 0xFF) + r(7)) and 0xFF)
+    }
+
+    /** `opl_key_off` `2600`. */
+    private fun fmKeyOff(voice: Int) {
+        if (voice < 6) {
+            oplWrite(0xB0 + voice, 0)
+        } else {
+            val bit = 0x10 ushr (voice - 6)
+            oplWrite(0xBD, (drb(OPL_SHADOW + 0xBD) and bit.inv()) or 0x20)
+        }
+    }
+
+    /** `opl_silence` `2666`. */
+    private fun oplSilence() {
+        for (c in 0x16 downTo 1) oplWrite(0x40 + c - 1, 0x3F)
+        for (c in 9 downTo 1) oplWrite(0xB0 + c - 1, 0)
+        oplWrite(0xBD, 0)
+    }
+
+    /**
+     * `opl_write` `240a`: the chip and the shadow `cs:230a`. A write takes the chip time, as the driver's delays gave it
+     * (`opl_delay_short`/`_long`, about 27 us): a note's key-off and key-on must be samples apart or the note never restarts.
+     */
+    private fun oplWrite(reg: Int, value: Int) {
+        dwb(OPL_SHADOW + reg, value)
+        oplWrites?.invoke(reg, value)
+        if (out === Output.NONE) return
+        renderChip()
+        chip.write(reg, value)
+        repeat(SAMPLES_PER_WRITE) {
+            out.opl(chipSamples.toDouble() / OplChip.RATE, chip.clock())
+            chipSamples++
+        }
+    }
+
+    /** The chip's samples up to [time]. Before a tick's writes: they take effect from the tick's time on. */
+    private fun renderChip() {
+        if (out === Output.NONE) return
+        val until = (time * OplChip.RATE).toLong()
+        while (chipSamples < until) {
+            out.opl(chipSamples.toDouble() / OplChip.RATE, chip.clock())
+            chipSamples++
+        }
     }
 
     /** `music_period_finetune` `0c8d`: the tone-portamento target. */
@@ -942,6 +1089,12 @@ class SoundBlaster(
         const val SB_HZ = 1000000.0 / 83 // sb_set_rate 1a75: 256 - 1000000 / 12000
         const val BLOCK = 256
         private val VOICES = intArrayOf(0x1DFD, 0x1E0D, 0x1E1D, 0x1E2D)
+        private const val OPL_SHADOW = 0x230A
+        private const val SAMPLES_PER_WRITE = 2
+        // `cs:24d0`: each voice's operators (register offsets); the drums (7..10) have one
+        private val FM_OPS = intArrayOf(
+            0, 3, 1, 4, 2, 5, 8, 0x0B, 9, 0x0C, 0x0A, 0x0D, 0x10, 0x13, 0x14, 0xFF, 0x12, 0xFF, 0x15, 0xFF, 0x11, 0xFF,
+        )
         private const val PERIODS = 0x1439 // cs: 16 finetunes x 36 periods
         private const val FUNK = 0x1409
         private const val SINE = 0x1419

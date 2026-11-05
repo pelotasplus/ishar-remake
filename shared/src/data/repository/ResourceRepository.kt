@@ -19,11 +19,13 @@ class ResourceRepositoryImpl(
 ) : ResourceRepository {
 
     override val ioFiles: List<String> = when (build) {
+        GameBuild.ARBOREA -> ARBOREA_IO_FILES
         GameBuild.ISHAR1 -> IO_FILES
         GameBuild.ISHAR2 -> ISHAR2_IO_FILES
         GameBuild.ISHAR3 -> ISHAR3_IO_FILES
     }
     override val ficFiles: List<String> = when (build) {
+        GameBuild.ARBOREA -> ARBOREA_FIC_FILES
         GameBuild.ISHAR1 -> FIC_FILES
         GameBuild.ISHAR2 -> ISHAR2_FIC_FILES
         GameBuild.ISHAR3 -> ISHAR3_FIC_FILES
@@ -206,6 +208,17 @@ class ResourceRepositoryImpl(
             "cont1-3.fic", "cont2-3.fic", "cont3-3.fic", "cont4-3.fic", "cont5-3.fic", "cont6-3.fic",
             "en1.fic", "init.fic", "initpv.fic", "raz.fic",
         )
+
+        /** Crystals of Arborea: its intro (diam, present, boarbo.io) and the editor (tableau.io) are not shipped. */
+        val ARBOREA_IO_FILES = listOf(
+            "arbre.io", "blancpc.io", "carte.io", "cavint.io", "cielsol.io", "combat.io", "death.io",
+            "debuter.io", "ebrain.io", "ecran.io", "ecrans.io", "emove.io", "endiv.io", "exca.io",
+            "gemecav.io", "gemeext.io", "gersom.io", "ghabitat.io", "gugus.io", "habitat.io", "ht.io",
+            "intmais.io", "lafin.io", "logo.io", "main.io", "manuel.io", "message2.io", "messages.io",
+            "morgot.io", "nad.io", "nplaine.io", "orc_elf.io", "plages.io", "puit.io", "samb.io", "scomb.io",
+            "shamnir.io", "solcave.io", "souris.io", "tour.io", "zdiam.io",
+        )
+        val ARBOREA_FIC_FILES = listOf("init.fic", "s1.fic", "s2.fic", "s3.fic", "s4.fic")
 
         val PROGRAM_FILES = listOf(
             "start.stp",

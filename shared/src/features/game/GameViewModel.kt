@@ -24,6 +24,7 @@ import dev.pelotasplus.ishar.engine.Input
 import dev.pelotasplus.ishar.engine.Intro
 import dev.pelotasplus.ishar.engine.Machine
 import dev.pelotasplus.ishar.engine.Palette
+import dev.pelotasplus.ishar.engine.MapTeleport
 import dev.pelotasplus.ishar.engine.PcmMixer
 import dev.pelotasplus.ishar.engine.ProgramEndException
 import dev.pelotasplus.ishar.engine.RealTimeClock
@@ -101,6 +102,8 @@ data class GameState(
     /** Where the intro is ([Intro.stage]); on the language menu a tap on a line chooses it ([Starts.languageAt]). */
     val introStage: Intro.Stage? = null,
     val muted: Boolean = false,
+    /** The tunes are heard ([PcmMixer.musicOn]); the sound effects go on either way. */
+    val musicOn: Boolean = true,
     /** The game asks for typed text ([Input.textPrompt]: the save name). */
     val textPrompt: Boolean = false,
     /** It asks for a save's name ([Input.namePrompt]): the phone's keyboard opens. */
@@ -109,6 +112,8 @@ data class GameState(
     val map: PartyMap? = null,
     /** The full map covers the game, which goes on. */
     val mapOpen: Boolean = false,
+    /** The cell a long press on the map just failed on. */
+    val mapRefusal: MapRefusal? = null,
 ) {
     val languageMenu get() = introStage == Intro.Stage.LANGUAGE
 }
@@ -147,7 +152,7 @@ class GameViewModel(
 
     /** The running game's view of the player's saves ([GameSaveStore]). */
     @Volatile
-    private var saves: SaveStore = GameSaveStore(saveStore, build == GameBuild.ISHAR2, build == GameBuild.ISHAR3)
+    private var saves: SaveStore = GameSaveStore(saveStore, build == GameBuild.ISHAR2, build == GameBuild.ISHAR3, build == GameBuild.ARBOREA)
 
     /** Ishar 1's saves, for Ishar 2's import list. */
     private val ishar1Saves: SaveStore = GameSaveStore(saveStore, false)
@@ -208,13 +213,15 @@ class GameViewModel(
         loadJob?.cancel()
         loadJob = viewModelScope.launch(engineDispatcher) {
             val repo = when (build) {
+                GameBuild.ARBOREA -> ResourceRepositoryImpl(GameBuild.ARBOREA)
                 GameBuild.ISHAR1 -> resourceRepository
                 GameBuild.ISHAR2 -> ishar2Repository
                 GameBuild.ISHAR3 -> ResourceRepositoryImpl(GameBuild.ISHAR3)
             }
             // Ishar 2's own saves are another size than Ishar 1's, which it also opens to import a party
             val saveSize = if (build == GameBuild.ISHAR1) SaveGames.SIZE else null
-            runCatching { files = GameFiles.fromResourceRepository(repo, store = store, saveSize = saveSize) }
+            val saveNames = if (build == GameBuild.ARBOREA) GameFiles.ARBOREA_SAVES else null
+            runCatching { files = GameFiles.fromResourceRepository(repo, store = store, saveSize = saveSize, saveNames = saveNames) }
                 .onFailure { e -> _state.update { it.copy(loading = false, error = e.message ?: e.toString()) } }
                 .onSuccess { newGame() }
         }
@@ -229,8 +236,8 @@ class GameViewModel(
         machine = null
         files = null
         worldMap = null
-        saves = GameSaveStore(saveStoreBase, build == GameBuild.ISHAR2, build == GameBuild.ISHAR3)
-        _state.update { GameState(build = build, loading = true, freeSaves = it.freeSaves, muted = it.muted) }
+        saves = GameSaveStore(saveStoreBase, build == GameBuild.ISHAR2, build == GameBuild.ISHAR3, build == GameBuild.ARBOREA)
+        _state.update { GameState(build = build, loading = true, freeSaves = it.freeSaves, muted = it.muted, musicOn = it.musicOn) }
         refreshSaves()
         loadFiles(build)
     }
@@ -249,7 +256,7 @@ class GameViewModel(
     /** [Starts.SKIP_INTRO] (the logo, Space, keypad 1 twice) runs unpaced to Fragonir, then the player's. */
     fun skipIntro() = start("Skip intro") { f, mixer ->
         if (_state.value.build == GameBuild.ISHAR2) {
-            val s = Starts.ISHAR2_SKIP_INTRO
+            val s = Starts.ISHAR2_SKIP_INTRO_MUSIC
             val vm = s.boot(f, Machine(build = GameBuild.ISHAR2), sound = 'B', sink = { SoundBlaster(it, out = mixer) })
             for (frame in 1 until Starts.ISHAR2_SKIP_INTRO_FRAMES) s.step(vm, frame)
             return@start Run(vm, vm.sound as SoundBlaster, Starts.ISHAR2_SKIP_INTRO_FRAMES)
@@ -288,7 +295,7 @@ class GameViewModel(
             opened = true
             onLoaded?.invoke(it)
         }
-        val s = Starts.ISHAR2_SKIP_INTRO
+        val s = Starts.ISHAR2_SKIP_INTRO_MUSIC
         val start = Starts.ISHAR2_SKIP_INTRO_FRAMES
         val vm = s.boot(f, Machine(build = GameBuild.ISHAR2), sound = 'B', sink = { SoundBlaster(it, out = mixer) })
         for (frame in 1 until start) s.step(vm, frame)
@@ -348,6 +355,33 @@ class GameViewModel(
     fun teleport(x: Int, y: Int, facing: Int) {
         val f = facing.coerceIn(1, 4)
         cheat { Cheats.moveParty(it, x, y, (f + 2) % 4 + 1) }
+        turnRightSoon()
+    }
+
+    /**
+     * A long press on the map: the party to cell [x] (across the sheets), [y], if [MapTeleport] allows it, keeping its
+     * facing. The game decides at its next tick, on what is there then; a refusal shows on the map for a moment.
+     */
+    fun teleportOnMap(x: Int, y: Int) {
+        cheat { m ->
+            val map = partyMap() ?: return@cheat
+            val p = Cheats.position(m)
+            val refusal = MapTeleport.go(m, map, x, y, (p.facing + 2) % 4 + 1)
+            if (refusal == null) turnRightSoon()
+            mapTeleportDone?.invoke(refusal)
+            _state.update { it.copy(mapRefusal = refusal?.let { r -> MapRefusal(x, y, r) }) }
+            if (refusal != null) viewModelScope.launch {
+                delay(REFUSAL_SHOWN_MS)
+                _state.update { s -> if (s.mapRefusal?.x == x && s.mapRefusal.y == y) s.copy(mapRefusal = null) else s }
+            }
+        }
+    }
+
+    /** What the next [teleportOnMap] decided (the MCP tool, tests). */
+    @Volatile
+    var mapTeleportDone: ((MapTeleport.Refusal?) -> Unit)? = null
+
+    private fun turnRightSoon() {
         val turnRight = if (_state.value.build == GameBuild.ISHAR1) TURN_RIGHT else ISHAR2_TURN_RIGHT
         viewModelScope.launch {
             delay(100)
@@ -373,6 +407,7 @@ class GameViewModel(
     fun saveGame(name: String) {
         input?.schedule(
             when (_state.value.build) {
+                GameBuild.ARBOREA -> emptyMap() // its saves are the game's own S1..S4.FIC slots
                 GameBuild.ISHAR1 -> SaveGames.saveEvents(name, 0)
                 GameBuild.ISHAR2 -> SaveGames.ishar2SaveEvents(name, 0)
                 GameBuild.ISHAR3 -> SaveGames.ishar3SaveEvents(name, 0)
@@ -438,6 +473,8 @@ class GameViewModel(
     fun setMapOpen(open: Boolean) = _state.update { it.copy(mapOpen = open) }
 
     fun setMuted(muted: Boolean) = _state.update { it.copy(muted = muted) }
+
+    fun setMusicOn(on: Boolean) = _state.update { it.copy(musicOn = on) }
 
     /** The app is out of sight (home screen, app switch, a minimised window): the game holds, apart from [pause]. */
     fun setVisible(visible: Boolean) {
@@ -536,7 +573,7 @@ class GameViewModel(
         machine = null
         stepping.store(0)
         _state.update {
-            GameState(build = it.build, loading = true, mode = mode, saves = it.saves, importable = it.importable, ishar2Saves = it.ishar2Saves, saveSummaries = it.saveSummaries, unloadableSaves = it.unloadableSaves, freeSaves = it.freeSaves, muted = it.muted)
+            GameState(build = it.build, loading = true, mode = mode, saves = it.saves, importable = it.importable, ishar2Saves = it.ishar2Saves, saveSummaries = it.saveSummaries, unloadableSaves = it.unloadableSaves, freeSaves = it.freeSaves, muted = it.muted, musicOn = it.musicOn)
         }
         job = viewModelScope.launch(engineDispatcher) {
             try {
@@ -563,7 +600,9 @@ class GameViewModel(
         val runFiles = f.fresh()
         val ishar1 = _state.value.build == GameBuild.ISHAR1
         // Ishar 2's map knows its islands' terrain only: no creatures, items or buildings yet
-        val map: PartyMap = when (_state.value.build) {
+        // Arborea's world (init.fic, carte.io) is not read yet: no map
+        val map: PartyMap? = when (_state.value.build) {
+            GameBuild.ARBOREA -> null
             GameBuild.ISHAR1 -> WorldMap.fromFiles(runFiles)
             GameBuild.ISHAR2 -> IslandMap.fromFiles(runFiles)
             GameBuild.ISHAR3 -> IslandMap.fromIshar3Files(runFiles)
@@ -571,7 +610,7 @@ class GameViewModel(
         worldMap = map
         var saveOpened = false
         runFiles.onSaveLoaded = { name ->
-            map.restore(store.read(mapName(name)))
+            map?.restore(store.read(mapName(name)))
             saveOpened = true
         }
         val run = setup(runFiles, mixer)
@@ -600,6 +639,7 @@ class GameViewModel(
                     val pcm = mixer.take(sb.time)
                     keepAudio(pcm)
                     val muted = _state.value.muted
+                    mixer.musicOn = _state.value.musicOn
                     if (wasMuted && !muted) audio.write(ShortArray(AUDIO_RATE / 12)) // nothing was queued
                     wasMuted = muted
                     if (!muted) audio.write(pcm)
@@ -618,7 +658,7 @@ class GameViewModel(
         // Only main.io 0864 (Ishar 2: 08b6) asks for it, on every new start: after a wipe, the disk menu's new game, or a load
         vm.onAssetAsked = { name ->
             if (name.equals("gerdep.io", ignoreCase = true)) {
-                if (!saveOpened) map.restore(null)
+                if (!saveOpened) map?.restore(null)
                 saveOpened = false
             }
             // Ishar 2 knows its buildings only by the interior main.io loads on the way in
@@ -652,7 +692,7 @@ class GameViewModel(
                 vm.frame()
                 CopyProtection.remove(vm.machine)
                 intro?.frame()
-                if (intro?.active != true) Cheats.position(vm.machine).let {
+                if (intro?.active != true && map != null) Cheats.position(vm.machine).let {
                     map.see(it, if (ishar1) Doors.of(vm.machine, it.contree) else (map as? IslandMap)?.doors(vm.machine, it.contree).orEmpty())
                 }
                 frame++
@@ -714,6 +754,7 @@ class GameViewModel(
     private companion object {
         /** The party walks in Fragonir from frame 900. */
         const val SKIP_TO = Starts.SKIP_INTRO_FRAMES
+        const val REFUSAL_SHOWN_MS = 1500L
         const val TURN_RIGHT = 0x51
 
         /** Ishar 2's interiors that tell what a building is (main.io 2d68, 2dc0). */

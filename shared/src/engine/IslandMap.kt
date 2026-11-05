@@ -168,6 +168,33 @@ class IslandMap(
 
     override fun blocks(x: Int, y: Int): Boolean = code(x, y)?.let(::blocks) ?: false
 
+    /**
+     * Layer 1 acts only when gerdep.io's step code runs (13af), which a teleport does not, so a message cell or a zone mark
+     * can be crossed and landed on; [zoneAfter] keeps the zone right. Refused: 7fh (0ef0, no step), 7eh (0ee4, a scripted
+     * event), and what changes a cave: its plates (1501) and the flags 70h/71h on island 5 (149c). Code 0 on island 4 refuses a step (0ebf).
+     */
+    override fun standable(p: Cheats.Position, x: Int, y: Int): Boolean {
+        val here = sheetX(p) ?: return false
+        if (ishar3 || x / WIDTH != here / WIDTH) return false
+        val c = code(x, y) ?: return false
+        if (blocks(c) || (c == 0 && p.contree == 4) || closedDoor(x, y)) return false
+        val mark = scene(x, y) ?: return false
+        if (mark == 0x7E || mark == 0x7F) return false
+        if (p.contree > 4 && mark in 0x89..0x9C) return false
+        return !(p.contree == 5 && (mark == 0x70 || mark == 0x71))
+    }
+
+    /** gerdep.io 162a after each step of [route] (cells across the sheets), from [zone]. */
+    override fun zoneAfter(contree: Int, zone: Int, route: List<Pair<Int, Int>>): Int? {
+        var z = zone
+        for ((sheet, y) in route) z = zoneStep(contree, z, sheet % WIDTH, y, scene(sheet, y) ?: 0)
+        return z
+    }
+
+    override fun ownX(x: Int) = x % WIDTH
+
+    override val rows get() = ROWS
+
     /** The step across a door's edge is refused while the door (glob 4aa4) is 0: gerdep.io 0f26, [isDoor]. */
     override fun closedDoor(x: Int, y: Int): Boolean {
         val here = last?.let(::sheetX) ?: return false
@@ -319,6 +346,32 @@ class IslandMap(
 
         /** The jetty's planks by the boat (codes 90..93, Irvan's Island 1..4,53). */
         private const val PIER = 0xA06E3C
+
+        /** The zone after a step onto [x], [y] with layer 1 [mark]: by marks on islands 3 and 5..7, by place on the others (16c9). */
+        fun zoneStep(contree: Int, z: Int, x: Int, y: Int, mark: Int): Int = when (contree) {
+            3 -> if (mark in 0x9D..0xCE) 256 - mark - 40 else z
+            5, 6, 7 -> if (mark in 0x9C..0xBA) 256 - mark - 40 else z
+            else -> when (z) {
+                1 -> when {
+                    x < 11 && y in 26..29 -> 2
+                    y > 44 -> 3
+                    x > 20 && y > 30 -> 4
+                    else -> z
+                }
+                2 -> if (x > 10) 1 else z
+                3 -> if (y < 45) 1 else z
+                4 -> if (x < 21) 1 else if (x > 40) 5 else z
+                5 -> if (x < 41) 4 else if (x > 78 && y > 38) 9 else z
+                6 -> if (x > 23) 7 else z
+                7 -> if (x < 24) 6 else z
+                9 -> if (x < 78 || y < 38) 5 else z
+                25 -> if (y > 47 && x > 56) 26 else if (y in 41..46 && x > 51) 59 else z
+                26 -> if (y > 40 && x < 57) 25 else if (y < 40) 27 else z
+                27 -> if (y > 39) 26 else z
+                59 -> if (x < 51 && y in 40..50) 25 else z
+                else -> z
+            }
+        }
 
         /** gerdep.io 0f14: a negative code refuses the step. */
         fun blocks(code: Int) = code >= 0x80

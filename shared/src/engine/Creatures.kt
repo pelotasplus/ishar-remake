@@ -84,6 +84,7 @@ object Creatures {
     const val ISHAR2_COUNT = 111
 
     fun all(m: Machine): List<Creature> {
+        if (m.build == GameBuild.ARBOREA) return emptyList()
         if (m.build == GameBuild.ISHAR3) return ishar3(m)
         if (m.build != GameBuild.ISHAR1) return ishar2(m)
         val party = (0 until 5).map { m.rb(G, a(0x3908) + it) }.filter { it != 0xFF }.toSet()

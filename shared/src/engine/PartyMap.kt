@@ -17,6 +17,21 @@ interface PartyMap {
     /** A closed door of the party's contree: the step across its door side is refused, from the other side it passes. */
     fun closedDoor(x: Int, y: Int): Boolean
 
+    /**
+     * The party at [p] may stand on this cell and pass over it on the way to another ([MapTeleport]): its own contree and
+     * kind of place, nothing that blocks a step, and no cell that moves the party or that the game means to stop it at (gate, town mouth, scripted cell).
+     */
+    fun standable(p: Cheats.Position, x: Int, y: Int): Boolean
+
+    /** The game's zone after walking [route] (cells across the sheets) from [zone] in [contree]; null where zones do not follow steps. */
+    fun zoneAfter(contree: Int, zone: Int, route: List<Pair<Int, Int>>): Int? = null
+
+    /** Cell [x] across the sheets as X in its own contree. */
+    fun ownX(x: Int): Int
+
+    /** Cells down a sheet: a grid is X * rows + Y. */
+    val rows: Int
+
     /** The seen cells of the sheet with X [x], as X and Y ranges; null when there are none. */
     fun seenBounds(x: Int): Pair<IntRange, IntRange>?
 

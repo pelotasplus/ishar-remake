@@ -13,6 +13,8 @@ class GameFiles(
     private val store: SaveStore? = null,
     /** A save of the store that the game can open; Ishar 2's own are another size than Ishar 1's. */
     private val saveSize: Int? = SaveGames.SIZE,
+    /** Other names that are the player's saves (Arborea's slots S1..S4.FIC), kept in the [store] as `NAME.SAV` is. */
+    private val saveNames: Regex? = null,
 ) {
     private val shippedFiles: Map<String, ByteArray> =
         initialFiles.entries.associate { (k, v) -> normalizeName(k) to v }
@@ -27,7 +29,7 @@ class GameFiles(
         store?.importFrom(game)
     }
 
-    private fun stored(b: String) = store?.takeIf { b.endsWith(".sav") }
+    private fun stored(b: String) = store?.takeIf { b.endsWith(".sav") || saveNames?.matches(b) == true }
 
     /** The player's save [b]; a damaged one is not there, so the game says FILE NOT FOUND and saving over it still works. */
     private fun storedSave(b: String) = stored(b)?.let { s -> runCatching { s.read(b) }.getOrNull() }?.takeIf { if (saveSize == null) it.isNotEmpty() else it.size == saveSize }
@@ -69,9 +71,12 @@ class GameFiles(
     fun overlayFiles(): Map<String, ByteArray> = overlayWrites.toMap()
 
     /** The shipped files (and the store) without this instance's writes and deletes. */
-    fun fresh(): GameFiles = GameFiles(shippedFiles, store, saveSize)
+    fun fresh(): GameFiles = GameFiles(shippedFiles, store, saveSize, saveNames)
 
     companion object {
+        /** Crystals of Arborea's save slots (main.io's fopen 'S1.FIC'..'S4.FIC'). */
+        val ARBOREA_SAVES = Regex("s[1-4]\\.fic")
+
         fun normalizeName(name: String): String =
             name.replace('\\', '/').substringAfterLast('/').lowercase()
 
@@ -80,6 +85,7 @@ class GameFiles(
             includeAllIo: Boolean = true,
             store: SaveStore? = null,
             saveSize: Int? = SaveGames.SIZE,
+            saveNames: Regex? = null,
         ): GameFiles {
             val map = LinkedHashMap<String, ByteArray>()
             val names = if (includeAllIo) {
@@ -92,7 +98,7 @@ class GameFiles(
                     throw IllegalStateException("Cannot read $fileName: ${e.message ?: e}", e)
                 }
             }
-            return GameFiles(map, store, saveSize)
+            return GameFiles(map, store, saveSize, saveNames)
         }
     }
 }
