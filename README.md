@@ -1,6 +1,6 @@
 # Ishar - Compose Multiplatform Remake
 
-This project brings the Ishar trilogy (Silmarils, 1992-1994) to modern platforms while staying faithful to the original DOS games. Built entirely in Kotlin, it runs on Android, iOS, Desktop, and Web.
+This project brings the Ishar trilogy (Silmarils, 1992-1994) and Crystals of Arborea, the game before it, to modern platforms while staying faithful to the original DOS games. Built entirely in Kotlin, it runs on Android, iOS, Desktop, and Web.
 
 It does not rewrite the games' rules. It runs their original scripts on a reimplemented VM, with the original timing: the 57.6 Hz tick and 19.2 fps. Thanks to Claude Code there is now something to actually play, in your browser:
 
@@ -8,12 +8,12 @@ It does not rewrite the games' rules. It runs their original scripts on a reimpl
 
 ## Features
 
-- A reimplemented script VM that runs the original `.io` files, for all three games
-- Ishar 1: Legend of the Fortress, Ishar 2: Messengers of Doom and Ishar 3: The Seven Gates of Infinity, picked on a start screen
+- A reimplemented script VM that runs the original `.io` files, for all four games
+- Crystals of Arborea (in its re-release on Ishar 1's engine), Ishar 1: Legend of the Fortress, Ishar 2: Messengers of Doom and Ishar 3: The Seven Gates of Infinity, picked on a start screen
 - Original graphics, the 3D view, palettes and Ishar 3's FLI cinematics
-- Sound Blaster samples and the MOD music player
+- Sound Blaster samples, the MOD music player and Ishar 2's FM tunes on an OPL2 chip
 - Saves from the original games load, and parties move from game to game as they did on DOS
-- A map of what the party has seen: terrain, doors, levers, buildings, ground items and people
+- A map of what the party has seen: terrain, doors, levers, buildings, ground items and people; a long press on it takes the party there
 - Touch controls and the phone's keyboard at the game's prompts
 - The copy protection is removed
 - A debug menu: heal, gold, remove curses, free saves, a save browser
@@ -32,10 +32,11 @@ Everything is one Kotlin Multiplatform codebase, built with the [Kotlin Toolchai
 
 ## Quick Start
 
-The games' own files are not in this repository, so bring your own copies. The project reads them from `shared/composeResources/files`, one folder a game, with lowercase names. It needs each game's `*.io`, `*.fic` and `start.stp`, flat in the folder; a game whose folder is missing stays out.
+The games' own files are not in this repository, so bring your own copies. The project reads them from `shared/composeResources/files`, one folder a game, with lowercase names. It needs each game's `*.io`, `*.fic` and `start.stp`, flat in the folder; a game whose folder is missing stays out. Crystals of Arborea ships no `start.stp`: write one containing `RBVVSBP1J0M1KQ` (VGA, Sound Blaster).
 
 ```
 $ ls -al shared/composeResources/files
+arborea/   # 47 files: 41 .io, 5 .fic, start.stp
 ishar1/    # 107 files: 98 .io, 8 .fic, start.stp
 ishar2/    # 152 files: 141 .io, 10 .fic, start.stp
 ishar3/    # 143 files: 132 .io, 10 .fic, start.stp
@@ -61,7 +62,7 @@ W/S/A/D move and Q/E turn. Ishar's save prompts take letters and digits, as the 
 
 ### Tests
 
-The suite compares the engine with snapshots and recordings of the original games running under an emulator, and with a reference engine in Python. Those, and the game files, are not in this repository, so `./kotlin test` does not work from a fresh clone: it can hang rather than fail, and there is no mode yet that runs only what needs no game data.
+The suite compares the engine with snapshots and recordings of the original games running under an emulator, and with a reference engine in Python. Those are not in this repository. With the game files staged, `./kotlin test -p jvm` runs the rest and skips the tests that need them (41 of 224).
 
 Rendering is guarded by golden-image tests: each one draws a known frame and compares it pixel by pixel against a reference PNG in `shared/test@jvm/goldens/`.
 
