@@ -1,6 +1,7 @@
 package dev.pelotasplus.ishar.engine
 
 import java.io.File
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.util.zip.GZIPInputStream
 
 /** One `data/vm/scenarios.txt` line: N frames from snapshot A should give snapshot B. */
@@ -14,12 +15,16 @@ data class VmScenario(
 /** A frame-trap snapshot laid out as [Machine] memory; [hasScreen] when it holds the A000 screen. */
 class VmSnapshot(val memory: ByteArray, val hasScreen: Boolean)
 
-/** The recorded pairs read straight from the repository. */
+/**
+ * The recorded pairs, from a `data/vm` folder above this one. They are not in this repository:
+ * without them the tests that use them are skipped.
+ */
 object VmPairs {
     val root: File by lazy {
         var d: File? = File("").absoluteFile
         while (d != null && !File(d, "data/vm/scenarios.txt").exists()) d = d.parentFile
-        requireNotNull(d) { "data/vm not found above ${File("").absolutePath}" }
+        assumeTrue(d != null) { "data/vm not found above ${File("").absolutePath}: skipped" }
+        d!!
     }
 
     private val dir get() = File(root, "data/vm")

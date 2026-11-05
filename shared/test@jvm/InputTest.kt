@@ -217,6 +217,7 @@ class InputTest {
     /** The phone's keyboard: the whole name and Enter typed in one burst when the prompt opens; each key still lands. */
     @Test
     fun `typed keys in a burst all reach the prompt`() = runTest {
+        TestResources.needSaves()
         val files = Play.files()
         files.write("WORD.SAV", files.read("LR.SAV"))
         val vm = Starts.skipIntro(files)
@@ -243,6 +244,7 @@ class InputTest {
     private fun scancodeFor(c: Char) = Input.scancodeFor(c)
 
     private fun typeAndLoad(name: String, hostKeyUps: Boolean = true, after: (Scheduler, Input) -> Unit = { _, _ -> }) = runTest {
+        TestResources.needSaves()
         val files = GameFiles.fromResourceRepository(TestResources())
         files.write("$name.SAV", files.read("LR.SAV"))
         val vm = Starts.skipIntro(files)

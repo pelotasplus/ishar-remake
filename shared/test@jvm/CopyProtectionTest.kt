@@ -8,6 +8,7 @@ class CopyProtectionTest {
     /** M stands at c2 (46,16) facing east: walking across into c3 asks nothing, and the party walks on. */
     @Test
     fun `crossing into contree 3 asks nothing`() = runTest {
+        TestResources.needSaves()
         val (vm, _) = Play.loaded(Play.files(), "M")
         val input = Input(vm).also { it.install() }
         val m = vm.machine

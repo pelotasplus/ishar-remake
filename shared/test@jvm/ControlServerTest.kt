@@ -39,10 +39,11 @@ class ControlServerTest {
 
     @BeforeTest
     fun setUp() {
+        val lr = dev.pelotasplus.ishar.engine.TestResources.save("LR.SAV") // skips the class without the game folder
         Dispatchers.setMain(Dispatchers.Default)
         game = GameViewModel(
             resourceRepository = dev.pelotasplus.ishar.engine.TestResources(),
-            saveStore = MemorySaveStore().apply { write("lr.sav", dev.pelotasplus.ishar.engine.TestResources.save("LR.SAV")) }, // a row for ui_tap
+            saveStore = MemorySaveStore().apply { write("lr.sav", lr) }, // a row for ui_tap
             muted = true,
         )
         server = ControlServer(game, 0).start()
@@ -50,6 +51,7 @@ class ControlServerTest {
 
     @AfterTest
     fun tearDown() {
+        if (!::server.isInitialized) return
         server.stop()
         game.stop()
         Dispatchers.resetMain()

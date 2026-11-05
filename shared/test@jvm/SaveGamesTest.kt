@@ -12,6 +12,7 @@ class SaveGamesTest {
 
     @Test
     fun `jump-point saves load through the disk menu`() = runTest {
+        TestResources.needSaves()
         val files = Play.files()
         val bad = TestResources.SAVES.mapNotNull { file ->
             val name = file.substringBefore('.')
@@ -25,6 +26,7 @@ class SaveGamesTest {
     /** The browser reads the file; the live game after loading it must agree. */
     @Test
     fun `a summary says what the loaded game has`() = runTest {
+        TestResources.needSaves()
         val files = Play.files()
         val bad = TestResources.SAVES.mapNotNull { file ->
             val name = file.substringBefore('.')

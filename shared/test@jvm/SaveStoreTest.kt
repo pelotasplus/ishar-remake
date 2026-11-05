@@ -53,6 +53,7 @@ class SaveStoreTest {
     /** What a kill during the old writes left behind: the prompt answers FILE NOT FOUND, saving over it works. */
     @Test
     fun `a damaged save is not there for the game, and can be saved over`() = runTest {
+        dev.pelotasplus.ishar.engine.TestResources.needSaves()
         val store = MemorySaveStore()
         store.write("io.sav", ByteArray(100))
         val files = Play.files(store)
@@ -76,6 +77,7 @@ class SaveStoreTest {
     /** A save made through the disk menu lands in the store, and a new GameFiles over the store reads it back. */
     @Test
     fun `a game save goes to the store`() = runTest {
+        dev.pelotasplus.ishar.engine.TestResources.needSaves()
         val dir = Files.createTempDirectory("saves").toFile()
         val files = Play.files(FileSaveStore(dir))
         val (vm, next) = Play.loaded(files, "LR")

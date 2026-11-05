@@ -94,6 +94,7 @@ class CheatsTest {
     /** Saving costs 1000 (live: 37 -> 36 thousand); with free saves the gold stays. */
     @Test
     fun `free saves keep the gold`() = runTest {
+        TestResources.needSaves()
         val files = Play.files()
         fun goldAfterSave(free: Boolean): Pair<Int, Int> {
             val (vm, next) = Play.loaded(files.fresh(), "LR")

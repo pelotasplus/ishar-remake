@@ -17,8 +17,8 @@ import kotlin.test.assertEquals
  */
 class GoldenScreenTest {
 
-    private val goldens = File(VmPairs.root, "ishar-game/shared/test@jvm/goldens")
-    private val failures = File(VmPairs.root, "ishar-game/build/golden-failures")
+    private val goldens = requireNotNull(TestResources.above("shared/test@jvm/goldens"))
+    private val failures = File(goldens.parentFile.parentFile.parentFile, "build/golden-failures")
     private val update = System.getenv("UPDATE_GOLDENS") == "1"
 
     private fun png(argb: IntArray) = BufferedImage(320, 200, BufferedImage.TYPE_INT_RGB).apply {
